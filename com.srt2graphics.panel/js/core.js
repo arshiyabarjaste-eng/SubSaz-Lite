@@ -1,4 +1,4 @@
-/* SubSaz Lite v1.0.0 — core.js
+/* SubSaz Lite v1.1.0 — core.js
  * The evalScript bridge + safe encoding + Persian error translation.
  * Runs in CEF (this file never touches Premiere APIs directly).
  *
@@ -147,7 +147,9 @@
     "no text field in MOGRT": "فیلد متن در MOGRT پیدا نشد",
     "text not applied (readback mismatch)": "متن اعمال شد ولی بازخوانی با متن یکسان نبود (یک بار تلاش مجدد شد)",
     "text not applied (retry failed)": "متن اعمال نشد (تلاش مجدد هم ناموفق بود)",
-    "set end failed": "تنظیم زمان پایان کلیپ ناموفق بود"
+    "set end failed": "تنظیم زمان پایان کلیپ ناموفق بود",
+    "baked path missing": "مسیر فایل بیکری این زیرنویس گم شد",
+    "baked file missing": "فایل بیکری این زیرنویس روی دیسک پیدا نشد"
   };
 
   // "cue 3: no text field in MOGRT (no match among 12 props)" -> Persian line

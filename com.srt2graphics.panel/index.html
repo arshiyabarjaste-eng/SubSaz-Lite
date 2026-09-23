@@ -8,7 +8,7 @@
 <body>
   <header>
     <h1>ساب‌ساز لایت</h1>
-    <span id="chipVer" class="chip">v1.0.1</span>
+    <span id="chipVer" class="chip">v1.1.0</span>
   </header>
   <p class="hint">فقط سه انتخاب + یک دکمه. استایل از قالب MOGRT شما گرفته می‌شود.</p>
 
@@ -36,6 +36,12 @@
     <select id="selTrack">
       <option value="-1">— انتخاب ترک —</option>
     </select>
+    <label class="lbl" for="selEngine">روش نوشتن متن</label>
+    <select id="selEngine">
+      <option value="auto" selected>هوشمند — بیکری (پیشنهادی)، وگرنه مستقیم</option>
+      <option value="bake">فقط بیکری — مطمئن‌ترین (متن داخل فایل قالب)</option>
+      <option value="direct">مستقیم — نوشتن داخل پریمیر (روش قدیمی)</option>
+    </select>
     <label class="chk">
       <input type="checkbox" id="chkClear" checked>
       حذف زیرنویس‌های قبلی همین پلاگین (S2G) از این ترک
@@ -48,6 +54,7 @@
   <div id="barWrap"><div id="barFill"></div></div>
   <div id="lblProgress">آماده</div>
   <div id="lblStatus" class="status">در حال اتصال به پریمیر…</div>
+  <div id="lblBakeInfo" class="hint" hidden></div>
 
   <div id="boxErrors" hidden>
     <div class="boxtitle">جزئیات خطاها</div>
@@ -61,6 +68,7 @@
   <script src="js/CSInterface.js"></script>
   <script src="js/srt.js"></script>
   <script src="js/core.js"></script>
+  <script src="js/mogrtbaker.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

@@ -1,6 +1,14 @@
-/* SubSaz Lite v1.0.1 — main.js
+/* SubSaz Lite v1.1.0 — main.js
  * UI + run loop (CEP side). Heavy work (import + set time + set text) happens
  * inside ExtendScript in chunks; this file only queues, encodes, and paints.
+ *
+ * v1.1.0 — BAKED ENGINE (fixes the field bug "every layer shows the template
+ * placeholder text"): on the user's host every script-side text write (MGT
+ * capsule AND clip.components) is silently ignored. The proven cure from the
+ * full SubSaz panel: bake one .mogrt per UNIQUE cue with the text already
+ * inside (MogrtBaker.js, Node in CEF) and let the host import those files —
+ * the ExtendScript layer then contains NO text handling at all. Engine A
+ * (direct setValue, v1.0.x) stays as the selectable fallback.
  *
  * Crash-safety recap (mirror of the architecture):
  *   - single-flight queue (core.createBridge) — never 2 evalScript at once
@@ -17,6 +25,7 @@
 
   var Core = global.S2GCore;
   var SRT = global.S2GSRT;
+  var Baker = global.MogrtBaker; // v1.1.0 baked engine (js/mogrtbaker.js)
   var cs = new global.CSInterface();
   var bridge = Core.createBridge(function (expr, cb) { cs.evalScript(expr, cb); });
   var callHost = bridge.callHost;
@@ -25,6 +34,8 @@
     cues: null,
     mogrtPath: "",
     trackIndex: -1,
+    engine: "auto",   // v1.1.0: "auto" | "bake" | "direct"
+    bake: null,       // v1.1.0: { items, cueMap, dir } after a successful bake
     running: false,
     cancel: false,
     runId: "",
@@ -58,6 +69,7 @@
     $("fileSrt").disabled = b;
     $("fileMogrt").disabled = b;
     $("selTrack").disabled = b;
+    $("selEngine").disabled = b;
     $("chkClear").disabled = b;
   }
 
@@ -219,6 +231,10 @@
       state.trackIndex = parseInt(this.value, 10);
     });
 
+    $("selEngine").addEventListener("change", function () {
+      state.engine = this.value;
+    });
+
     $("btnRun").addEventListener("click", run);
     $("btnCancel").addEventListener("click", function () {
       if (!state.running) return;
@@ -250,6 +266,7 @@
     state.total = state.cues.length;
     state.processed = 0;
     state.problemSet = {};
+    state.bake = null;
     clearErrors();
     hideDump();
     setBusy(true);
@@ -263,7 +280,7 @@
           fail(Core.trError(code));
           return;
         }
-        var go = function () { startChunks(); };
+        var go = function () { engineStart(); };
         if ($("chkClear").checked) {
           callHost("s2gClearPrevious", String(state.trackIndex), function (r3) {
             if (r3 && r3.ok && r3.removed > 0) {
@@ -278,7 +295,88 @@
     });
   }
 
-  function startChunks() {
+  // ---------- v1.1.0 engine selection + baked engine ----------
+  // ASCII-safe dedupe key for identical subtitle texts (djb2 over the UTF-8
+  // bytes + length suffix). Identical cues share ONE baked file — faster bake,
+  // fewer near-clone files for Premiere to juggle.
+  function textHash(s) {
+    var bytes;
+    try { bytes = unescape(encodeURIComponent(s || "")); } catch (eH) { bytes = String(s || ""); }
+    var h = 5381;
+    for (var i = 0; i < bytes.length; i++) { h = (((h << 5) + h) + bytes.charCodeAt(i)) >>> 0; }
+    return h.toString(16) + "x" + bytes.length;
+  }
+
+  function engineStart() {
+    var eng = state.engine;
+    if (eng === "direct" || !Baker) {
+      if (eng === "bake") {
+        fail("موتور بیکری بارگذاری نشده — اسکریپت mogrtbaker.js در پوشه‌ی پنل نیست.");
+        return;
+      }
+      startChunks(false);
+      return;
+    }
+    if (!Baker.nodeAvailable()) {
+      if (eng === "bake") {
+        fail("موتور بیکری در دسترس نیست — Node در پنل غیرفعال است (پنل را ببندید و دوباره باز کنید).");
+        return;
+      }
+      recordError("موتور بیکری در دسترس نیست — با روش مستقیم ادامه می‌دهیم.");
+      startChunks(false);
+      return;
+    }
+    try { Baker.cleanupTemp(); } catch (eC) {}
+
+    // bake UNIQUE texts only; identical cues share one baked file.
+    // cueMap[globalCueIndex0based] = index of that cue's baked file.
+    var list = [];
+    var cueMap = [];
+    var byKey = {};
+    for (var i = 0; i < state.cues.length; i++) {
+      var c = state.cues[i];
+      var txt = String(c.text || "").replace(/\n/g, "\r\n");
+      var key = textHash(txt);
+      if (byKey[key] === undefined) {
+        byKey[key] = list.length;
+        list.push({ text: txt, label: " — " + (list.length + 1) });
+      }
+      cueMap.push(byKey[key]);
+    }
+
+    var info = $("lblBakeInfo");
+    info.hidden = true;
+    setStatus("ساخت قالب‌های اختصاصی (موتور بیکری)…", "info");
+    var done = function (res) {
+      if (state.cancel) { finish(true); return; }
+      if (res && res.ok) {
+        state.bake = { items: res.items, cueMap: cueMap, dir: res.dir };
+        info.textContent = "قالب‌های اختصاصی: " + res.dir + " (رسانه‌ی پروژه — پاکش نکنید)";
+        info.hidden = false;
+        setStatus("بیکری آماده شد — " + res.items.length + " قالب اختصاصی برای " + state.total + " لایه (متن‌های تکراری مشترک).", "ok");
+        progress(0, state.total);
+        startChunks(true);
+      } else {
+        var err = (res && res.error) ? res.error : "نامشخص";
+        if (eng === "bake") {
+          fail("بیکری ناموفق بود: " + err);
+          return;
+        }
+        recordError("بیکری ناموفق بود (" + err + ") — با روش مستقیم ادامه می‌دهیم.");
+        startChunks(false);
+      }
+    };
+    if (Baker.bakeCueListAsync) {
+      Baker.bakeCueListAsync(state.mogrtPath, list, function (p) {
+        progress(p.done, p.total);
+        setStatus("بیکری: " + p.done + " / " + p.total + " قالب…", "info");
+      }, done);
+    } else {
+      setTimeout(function () { done(Baker.bakeCueList(state.mogrtPath, list)); }, 0);
+    }
+  }
+
+  function startChunks(baked) {
     var i = 0;
     var total = state.total;
 
@@ -290,12 +388,19 @@
       var from = i;
       i += chunk.length;
 
-      var payload = {
-        runId: state.runId,
-        mogrtPath: state.mogrtPath,
-        trackIndex: state.trackIndex,
-        cues: chunk
-      };
+      var payload;
+      if (baked && state.bake) {
+        // baked mode: each cue carries its own .mogrt path (text inside).
+        var out = [];
+        for (var k = 0; k < chunk.length; k++) {
+          var c = chunk[k];
+          var it = state.bake.items[state.bake.cueMap[c.i - 1]]; // cue.i is 1-based
+          out[out.length] = { i: c.i, start: c.start, end: c.end, path: it ? it.path : "", text: c.text };
+        }
+        payload = { runId: state.runId, baked: true, mogrtPath: state.mogrtPath, trackIndex: state.trackIndex, cues: out };
+      } else {
+        payload = { runId: state.runId, mogrtPath: state.mogrtPath, trackIndex: state.trackIndex, cues: chunk };
+      }
 
       callHost("s2gInsertChunk", Core.evalArg(payload), function (r) {
         if (r && r.ok) {

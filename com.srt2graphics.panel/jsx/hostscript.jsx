@@ -1,5 +1,5 @@
 /* eslint-disable */
-// SubSaz Lite v1.0.1 - hostscript.jsx  (com.srt2graphics.panel, ScriptPath)
+// SubSaz Lite v1.1.0 - hostscript.jsx  (com.srt2graphics.panel, ScriptPath)
 // ExtendScript ES3 inside Premiere Pro. THIS FILE IS ASCII-ONLY:
 // Persian UI strings live in main.js on the CEP side; Persian/Arabic chars
 // inside a BOM-less .jsx are read via the system codepage and break parsing
@@ -21,6 +21,19 @@
 //   - readback + one retry catches silent setValue failures
 //   - first text failure dumps the MOGRT property structure exactly once
 //   - clip.name prefix "S2G|" marks clips owned by this plugin only
+//
+// v1.1.0 BAKED ENGINE (default on the panel side):
+//   Field truth from v1.0.0/v1.0.1: on some hosts (incl. the user's) BOTH the
+//   MGT capsule write AND the canonical clip.components write are silently
+//   ignored -> every layer shows the template placeholder text. Web research
+//   (Adobe forums 2024/2025) confirms the JSON-doc requirement of the text
+//   param and that script writes are unreliable across builds. The proven fix
+//   (shipped in the full SubSaz panel since v2.x) is the BAKED engine: the
+//   CEF side bakes one .mogrt per UNIQUE cue with the text already inside
+//   (MogrtBaker, Node in CEF) and the host just imports those files:
+//     payload.baked === true  ->  each cue = { i, start, end, path, text }
+//     importMGT(cue.path, ...) + 3-layer end + clip.name; NO setValue at all.
+//   Engine A (setValue passes 0..5 below) stays intact as the fallback.
 
 $.global.s2gState = {
   runId: "",
@@ -293,7 +306,7 @@ function s2gEqText(a, b) {
 
 // ------------------------------------------------------------------- public
 function s2gPing() {
-  return s2gToJSON({ ok: true, ver: "1.0.1", name: "srt2graphics" });
+  return s2gToJSON({ ok: true, ver: "1.1.0", name: "srt2graphics" });
 }
 
 function s2gResetState() {
@@ -784,6 +797,8 @@ function s2gInsertChunk(payloadJson) {
 
   var trackIdx = Number(p.trackIndex);
   var path = String(p.mogrtPath || "");
+  // v1.1.0: baked engine - one pre-baked .mogrt file per cue (text inside).
+  var isBaked = (p.baked === true);
   var cues = p.cues;
   var inserted = 0;
   var skipped = 0;
@@ -799,8 +814,24 @@ function s2gInsertChunk(payloadJson) {
       var endTicks = s2gSecToTicks(cue.end);
 
       var clip = null;
+      // baked mode: every cue imports ITS OWN file (text already inside).
+      var srcPath = isBaked ? String(cue.path || "") : path;
+      if (isBaked && srcPath === "") {
+        skipped++;
+        errors[errors.length] = "cue " + cueI + ": baked path missing";
+        continue;
+      }
+      if (isBaked) {
+        var bf = null;
+        try { bf = new File(srcPath); } catch (eBF) { bf = null; }
+        if (!bf || !bf.exists) {
+          skipped++;
+          errors[errors.length] = "cue " + cueI + ": baked file missing";
+          continue;
+        }
+      }
       // known-good signature: importMGT(path, ticksString, videoTrack, -1)
-      try { clip = seq.importMGT(path, startTicks, trackIdx, -1); } catch (eImp) { clip = null; }
+      try { clip = seq.importMGT(srcPath, startTicks, trackIdx, -1); } catch (eImp) { clip = null; }
       if (!clip) {
         skipped++;
         errors[errors.length] = "cue " + cueI + ": importMGT returned null";
@@ -821,6 +852,8 @@ function s2gInsertChunk(payloadJson) {
       }
 
       // set TEXT + verify (readback + one retry; MGT is sometimes not ready)
+      // Baked mode skips ALL of this - the text is part of the file itself.
+      if (!isBaked) {
       var res = s2gSetText(clip, text);
       if (res && res.ok) {
         if (s2gState.textPropIndex < 0 && res.index >= 0) {
@@ -853,6 +886,7 @@ function s2gInsertChunk(payloadJson) {
           errors[errors.length] = "DUMP " + s2gDumpPropsJson(clip);
         }
       }
+      } // end !isBaked
 
       try { clip.name = "S2G|" + text.substring(0, 60); } catch (eN) {}
       inserted++;
