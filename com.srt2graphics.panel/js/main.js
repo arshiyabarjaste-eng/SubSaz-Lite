@@ -1,4 +1,4 @@
-/* SubSaz Lite v1.0.0 — main.js
+/* SubSaz Lite v1.0.1 — main.js
  * UI + run loop (CEP side). Heavy work (import + set time + set text) happens
  * inside ExtendScript in chunks; this file only queues, encodes, and paints.
  *

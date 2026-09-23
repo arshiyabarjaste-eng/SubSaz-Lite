@@ -1,5 +1,5 @@
 /* eslint-disable */
-// SubSaz Lite v1.0.0 - hostscript.jsx  (com.srt2graphics.panel, ScriptPath)
+// SubSaz Lite v1.0.1 - hostscript.jsx  (com.srt2graphics.panel, ScriptPath)
 // ExtendScript ES3 inside Premiere Pro. THIS FILE IS ASCII-ONLY:
 // Persian UI strings live in main.js on the CEP side; Persian/Arabic chars
 // inside a BOM-less .jsx are read via the system codepage and break parsing
@@ -26,6 +26,7 @@ $.global.s2gState = {
   runId: "",
   textPropIndex: -1,
   textPropKind: "",
+  compPair: null,   // {c, p} = clip.components path cache (v1.0.1)
   diagDumped: false,
   lastAppliedText: ""
 };
@@ -292,13 +293,14 @@ function s2gEqText(a, b) {
 
 // ------------------------------------------------------------------- public
 function s2gPing() {
-  return s2gToJSON({ ok: true, ver: "1.0.0", name: "srt2graphics" });
+  return s2gToJSON({ ok: true, ver: "1.0.1", name: "srt2graphics" });
 }
 
 function s2gResetState() {
   s2gState.runId = "";
   s2gState.textPropIndex = -1;
   s2gState.textPropKind = "";
+  s2gState.compPair = null;
   s2gState.diagDumped = false;
   s2gState.lastAppliedText = "";
   return s2gToJSON({ ok: true });
@@ -427,6 +429,106 @@ function s2gMutateTextValue(cur, text) {
   return null;
 }
 
+// ---- Pass-5 engine: the canonical clip.components path (v1.0.1) ----------
+// Field report: on some Premiere builds the MGT capsule property accepts the
+// write but the graphics text never changes (or the capsule cannot be used
+// at all). The documented alternative is: clip.components -> component
+// "Text" (AE.ADBE Text) -> property "Source Text" -> setValue. This engine
+// adds that path as pass 5 with its own per-run cache (compPair).
+function s2gIsTextish(name) {
+  var s = String(name || "");
+  return s !== "" && S2G_NAME_RE.test(s);
+}
+
+function s2gCompTextCandidates(clip) {
+  var out = [];
+  var comps = null;
+  try { comps = clip.components; } catch (eC0) { return out; }
+  if (!comps) { return out; }
+  var nc = 0;
+  try { nc = Number(comps.numItems); } catch (eC1) { return out; }
+  for (var ci = 0; ci < nc; ci++) {
+    var comp = null, cdn = "", props = null, np = 0;
+    try { comp = comps[ci]; } catch (eC2) { continue; }
+    if (!comp) { continue; }
+    try { cdn = String(comp.displayName || ""); } catch (eC3) {}
+    try { props = comp.properties; } catch (eC4) { continue; }
+    if (!props) { continue; }
+    try { np = Number(props.numItems); } catch (eC5) { continue; }
+    var compTextish = s2gIsTextish(cdn); // e.g. the "Text" (AE.ADBE Text) comp
+    for (var pi = 0; pi < np; pi++) {
+      var prop = null, pdn = "";
+      try { prop = props[pi]; } catch (eC6) { continue; }
+      if (!prop) { continue; }
+      try { pdn = String(prop.displayName || ""); } catch (eC7) {}
+      if (pdn === "Source Text" || s2gIsTextish(pdn) || compTextish) {
+        out[out.length] = { c: ci, p: pi, prop: prop, dn: pdn };
+      }
+    }
+  }
+  // "Source Text" first (canonical), then every other candidate in scan order
+  out.sort(function (a, b) {
+    var x = (a.dn === "Source Text") ? 0 : 1;
+    var y = (b.dn === "Source Text") ? 0 : 1;
+    return x - y;
+  });
+  return out;
+}
+
+function s2gApplyCompProp(prop, text) {
+  // Write in the shape of the CURRENT value when that shape is a known text
+  // document; plain string as the universal fallback. Numeric params are
+  // refused outright (never write text into Font Size / Opacity).
+  var cur = null;
+  try { cur = prop.getValue(); } catch (eV) { cur = null; }
+  if (cur !== null && typeof cur === "number") { return false; }
+  if (typeof cur === "string" && s2gIsPureNumeric(cur)) { return false; }
+  var shaped = null;
+  if (cur && (typeof cur === "object" ||
+      (typeof cur === "string" && cur.length > 1 && cur.charAt(0) === "{"))) {
+    shaped = s2gMutateTextValue(cur, text); // null when unknown JSON shape
+  }
+  if (shaped !== null) {
+    try { prop.setValue(shaped); s2gState.lastAppliedText = text; return true; } catch (eS1) {}
+  }
+  try { prop.setValue(text); s2gState.lastAppliedText = text; return true; } catch (eS2) {}
+  if (shaped !== null) {
+    try { prop.setValue(shaped, true); s2gState.lastAppliedText = text; return true; } catch (eS3) {}
+  }
+  try { prop.setValue(text, true); s2gState.lastAppliedText = text; return true; } catch (eS4) {}
+  return false;
+}
+
+function s2gApplyCompPair(clip, pair, text) {
+  var comps = null;
+  try { comps = clip.components; } catch (eP0) { return false; }
+  if (!comps) { return false; }
+  var comp = null;
+  try { comp = comps[Number(pair.c)]; } catch (eP1) { return false; }
+  if (!comp) { return false; }
+  var props = null;
+  try { props = comp.properties; } catch (eP2) { return false; }
+  var np = 0;
+  try { np = Number(props.numItems); } catch (eP3) { return false; }
+  if (Number(pair.p) >= np) { return false; }
+  var prop = null;
+  try { prop = props[Number(pair.p)]; } catch (eP4) { return false; }
+  if (!prop) { return false; }
+  return s2gApplyCompProp(prop, text);
+}
+
+function s2gSetTextCompPath(clip, text) {
+  var cands = s2gCompTextCandidates(clip);
+  for (var i = 0; i < cands.length; i++) {
+    if (s2gApplyCompProp(cands[i].prop, text)) {
+      s2gState.compPair = { c: cands[i].c, p: cands[i].p };
+      s2gState.textPropKind = "comp";
+      return { ok: true, index: -1, kind: "comp" };
+    }
+  }
+  return { ok: false, index: -1, kind: "", reason: "comp path empty" };
+}
+
 // kind: "auto" | "json" | "obj" | "string"
 function s2gApplyToProp(prop, text, kind) {
   var cur = null;
@@ -493,6 +595,15 @@ function s2gSetText(clip, text) {
     s2gState.textPropKind = "";
   }
 
+  // Pass 0b: cached component-pair from an earlier cue of the same run
+  if (s2gState.compPair) {
+    if (s2gApplyCompPair(clip, s2gState.compPair, text)) {
+      return { ok: true, index: -1, kind: "comp" };
+    }
+    s2gState.compPair = null;
+    s2gState.textPropKind = "";
+  }
+
   s2gInitNameRe();
   var i, prop, dn, cur;
 
@@ -534,10 +645,56 @@ function s2gSetText(clip, text) {
     }
   }
 
+  // Pass 5 (v1.0.1): the canonical clip.components path. Runs only after the
+  // MGT capsule failed all four passes, so builds where the capsule works
+  // keep the exact same behavior as v1.0.0.
+  var resComp = s2gSetTextCompPath(clip, text);
+  if (resComp.ok) { return resComp; }
+
   return { ok: false, index: -1, kind: "", reason: "no match among " + n + " props" };
 }
 
+function s2gDecodeTextValue(v) {
+  if (typeof v === "string") {
+    if (v.length > 1 && v.charAt(0) === "{") {
+      var o = null;
+      try { o = s2gJsonParse(v); } catch (eJ) { o = null; }
+      if (o && typeof o === "object" && typeof o.textEditValue === "string") { return o.textEditValue; }
+      if (o && typeof o === "object" && typeof o.text === "string") { return o.text; }
+      if (o && typeof o === "object" && typeof o.value === "string") { return o.value; }
+      return v;
+    }
+    return v;
+  }
+  if (v && typeof v === "object") {
+    if (typeof v.textEditValue === "string") { return v.textEditValue; }
+    if (v.sourceText && typeof v.sourceText.textEditValue === "string") { return v.sourceText.textEditValue; }
+    if (typeof v.text === "string") { return v.text; }
+  }
+  return null;
+}
+
+function s2gReadCompPair(clip, pair) {
+  var comps = null;
+  try { comps = clip.components; } catch (eR0) { return null; }
+  if (!comps) { return null; }
+  var comp = null;
+  try { comp = comps[Number(pair.c)]; } catch (eR1) { return null; }
+  if (!comp) { return null; }
+  var props = null;
+  try { props = comp.properties; } catch (eR2) { return null; }
+  var prop = null;
+  try { prop = props[Number(pair.p)]; } catch (eR3) { return null; }
+  if (!prop) { return null; }
+  try { return s2gDecodeTextValue(prop.getValue()); } catch (eR4) { return null; }
+}
+
 function s2gReadText(clip) {
+  // v1.0.1: when the text was written through the components path, read
+  // the value back from there (the MGT capsule may not reflect it).
+  if (s2gState.textPropKind === "comp" && s2gState.compPair) {
+    return s2gReadCompPair(clip, s2gState.compPair);
+  }
   var props = s2gGetProps(clip);
   if (!props) { return null; }
   var n = s2gPropCount(props);
@@ -573,21 +730,29 @@ function s2gPreviewValue(v, max) {
 }
 
 function s2gDumpPropsJson(clip) {
-  var out = [];
+  var out = { mgt: [], comps: [] }; // v1.0.1: also dump the components tree
   try {
     var props = s2gGetProps(clip);
-    if (!props) { return "[]"; }
-    var n = s2gPropCount(props);
-    if (n > 24) { n = 24; } // keep the reply small
-    for (var i = 0; i < n; i++) {
-      var o = { i: i, dn: "", val: "" };
-      try { o.dn = String(props[i].displayName || ""); } catch (e1) {}
-      try { o.val = s2gPreviewValue(props[i].getValue(), 120); } catch (e2) { o.val = "<err>"; }
-      out[out.length] = o;
+    if (props) {
+      var n = s2gPropCount(props);
+      if (n > 24) { n = 24; } // keep the reply small
+      for (var i = 0; i < n; i++) {
+        var o = { i: i, dn: "", val: "" };
+        try { o.dn = String(props[i].displayName || ""); } catch (e1) {}
+        try { o.val = s2gPreviewValue(props[i].getValue(), 120); } catch (e2) { o.val = "<err>"; }
+        out.mgt[out.mgt.length] = o;
+      }
     }
-  } catch (e0) {
-    return "[]";
-  }
+  } catch (e0) {}
+  try {
+    var cands = s2gCompTextCandidates(clip);
+    var mc = cands.length > 12 ? 12 : cands.length;
+    for (var k = 0; k < mc; k++) {
+      var q = { c: cands[k].c, p: cands[k].p, dn: cands[k].dn, val: "" };
+      try { q.val = s2gPreviewValue(cands[k].prop.getValue(), 120); } catch (e3) { q.val = "<err>"; }
+      out.comps[out.comps.length] = q;
+    }
+  } catch (e4) {}
   return s2gJsonStr(out);
 }
 
@@ -610,6 +775,7 @@ function s2gInsertChunk(payloadJson) {
     s2gState.runId = String(p.runId);
     s2gState.textPropIndex = -1;
     s2gState.textPropKind = "";
+    s2gState.compPair = null;
     s2gState.lastAppliedText = "";
   }
 
@@ -663,9 +829,19 @@ function s2gInsertChunk(payloadJson) {
         }
         var readback = s2gReadText(clip);
         if (readback !== null && !s2gEqText(readback, text)) {
-          var res2 = s2gSetText(clip, text);
+          var res2 = s2gSetText(clip, text); // retry (now escalates to pass 5)
           var rb2 = (res2 && res2.ok) ? s2gReadText(clip) : null;
-          if (rb2 !== null && !s2gEqText(rb2, text)) {
+          if (rb2 !== null && !s2gEqText(rb2, text) && s2gState.textPropKind !== "comp") {
+            // v1.0.1 escalation: the capsule write "took" but the graphics
+            // text did not change -> force the canonical components path.
+            s2gState.textPropIndex = -1;
+            s2gState.textPropKind = "";
+            var res3 = s2gSetTextCompPath(clip, text);
+            var rb3 = (res3 && res3.ok) ? s2gReadText(clip) : null;
+            if (rb3 === null || !s2gEqText(rb3, text)) {
+              errors[errors.length] = "cue " + cueI + ": text not applied (readback mismatch)";
+            }
+          } else if (rb2 !== null && !s2gEqText(rb2, text)) {
             errors[errors.length] = "cue " + cueI + ": text not applied (readback mismatch)";
           }
         }
