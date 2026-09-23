@@ -1,0 +1,97 @@
+/* SubSaz Lite v1.0.0 — ultra-light UI (white, one accent, no heavy assets) */
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("../fonts/Vazirmatn-Regular.woff2") format("woff2");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("../fonts/Vazirmatn-Bold.woff2") format("woff2");
+  font-weight: 700;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: #ffffff;
+  color: #1f2937;
+  font-family: "Vazirmatn", "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 12px;
+}
+body { padding: 10px; direction: rtl; }
+
+header { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+h1 { font-size: 14px; font-weight: 700; color: #0f172a; }
+.chip {
+  background: #ecfdf5; color: #047857;
+  border: 1px solid #a7f3d0; border-radius: 999px;
+  padding: 1px 8px; font-size: 10px;
+}
+.hint { color: #6b7280; font-size: 11px; margin-bottom: 10px; line-height: 1.8; }
+
+.card {
+  border: 1px solid #e5e7eb; border-radius: 8px;
+  padding: 8px; margin-bottom: 8px; background: #fafafa;
+}
+.lbl { display: block; font-weight: 700; margin-bottom: 5px; color: #374151; }
+.pickrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+button {
+  font-family: inherit; font-size: 12px;
+  border: 1px solid #d1d5db; background: #ffffff; color: #1f2937;
+  border-radius: 6px; padding: 5px 12px; cursor: pointer;
+}
+button:hover:not(:disabled) { background: #f3f4f6; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary {
+  background: #0e7490; border-color: #0e7490; color: #ffffff;
+  width: 100%; padding: 8px; font-weight: 700; margin-top: 2px;
+}
+button.primary:hover:not(:disabled) { background: #155e75; }
+button.ghost {
+  background: #ffffff; color: #b91c1c; border-color: #fecaca;
+  width: 100%; padding: 7px; margin-top: 6px;
+}
+
+.fname { color: #374151; }
+.fcount { color: #059669; font-size: 11px; }
+
+select {
+  width: 100%; padding: 5px; border: 1px solid #d1d5db;
+  border-radius: 6px; background: #ffffff; font-family: inherit; font-size: 12px;
+}
+.chk {
+  display: flex; gap: 6px; align-items: center;
+  color: #4b5563; font-size: 11px; margin-top: 7px; cursor: pointer;
+}
+
+#barWrap {
+  height: 8px; background: #e5e7eb; border-radius: 999px;
+  overflow: hidden; margin-top: 10px;
+}
+#barFill { height: 100%; width: 0%; background: #0e7490; transition: width .15s; }
+#lblProgress { font-size: 11px; color: #4b5563; margin-top: 3px; text-align: center; }
+
+.status {
+  margin-top: 8px; padding: 6px 8px; border-radius: 6px;
+  font-size: 11px; line-height: 1.8; min-height: 20px;
+  background: #f9fafb; border: 1px solid #e5e7eb; color: #374151;
+}
+.status.ok   { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.status.warn { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.status.err  { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+
+#boxErrors, #boxDump {
+  margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 6px;
+  background: #fafafa; padding: 6px;
+}
+.boxtitle { font-size: 10px; font-weight: 700; color: #6b7280; margin-bottom: 4px; }
+#listErrors {
+  max-height: 110px; overflow: auto; padding-inline-start: 16px;
+  color: #7f1d1d; font-size: 10.5px; line-height: 1.9;
+}
+#preDump {
+  max-height: 110px; overflow: auto;
+  font-family: Consolas, "Courier New", monospace; font-size: 10px;
+  direction: ltr; text-align: left; white-space: pre-wrap; color: #374151;
+}
+.hidefile { display: none; }

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>ساب‌ساز لایت — راهنمای نصب و استفاده</title>
+<style>
+  body { font-family: "Vazirmatn", "Segoe UI", Tahoma, sans-serif; background:#fff; color:#1f2937; max-width:720px; margin:24px auto; padding:0 16px; line-height:2; font-size:14px; }
+  h1 { font-size:20px; color:#0e7490; } h2 { font-size:16px; color:#0f172a; margin-top:28px; }
+  code, pre { direction:ltr; text-align:left; font-family:Consolas, monospace; background:#f3f4f6; border-radius:6px; padding:2px 6px; }
+  pre { padding:10px; overflow:auto; }
+  .card { border:1px solid #e5e7eb; border-radius:10px; padding:12px 16px; background:#fafafa; margin:12px 0; }
+  ol li, ul li { margin-bottom:6px; }
+</style>
+</head>
+<body>
+<h1>ساب‌ساز لایت — SubSaz Lite v1.0.0</h1>
+<p>نسخه‌ی فوق‌سبک: فقط تبدیل <b>SRT به لایه‌های گرافیکی (MOGRT)</b> با استایل قالب خودتان — با معماری سه‌لایه‌ی ضدکرش. این پنل جدا از «ساب‌ساز» اصلی است و هر دو می‌توانند هم‌زمان نصب باشند.</p>
+
+<h2>۱) نصب (یک‌بار)</h2>
+<div class="card">
+<ol>
+  <li>پریمیر را <b>کاملاً ببندید</b>.</li>
+  <li>پوشه‌ی <code dir="ltr">com.srt2graphics.panel</code> را در این مسیر کپی کنید:<br>
+  <code dir="ltr">%AppData%\Adobe\CEP\extensions\com.srt2graphics.panel</code></li>
+  <li>در رجیستری ویندوز، در مسیر <code dir="ltr">HKCU\Software\Adobe\CSXS.11</code> یک مقدار String با نام <code dir="ltr">PlayerDebugMode</code> و مقدار <code dir="ltr">1</code> بسازید (اگر برای پنل قبلی ساخته‌اید، همان کافی است؛ برای CSXS.10 و CSXS.12 هم می‌توانید بسازید).</li>
+  <li>پریمیر را باز کنید → منوی <b>Window → Extensions</b> → «ساب‌ساز لایت — SubSaz Lite».</li>
+</ol>
+</div>
+
+<h2>۲) استفاده (سه انتخاب + یک دکمه)</h2>
+<div class="card">
+<ol>
+  <li><b>فایل SRT</b> را انتخاب کنید — تعداد زیرنویس‌ها بلافاصله نشان داده می‌شود.</li>
+  <li><b>قالب MOGRT</b> را انتخاب کنید — همان قالبی که یک‌بار در پریمیر ساخته و از پنل Essential Graphics خروجی گرفته‌اید؛ فونت/سایز/رنگ/مکان از آن گرفته می‌شود.</li>
+  <li><b>ترک مقصد</b> را از فهرست انتخاب کنید.</li>
+  <li>دکمه‌ی <b>«ساخت لایه‌ها»</b> را بزنید و دست به پریمیر نزنید تا تمام شود. نوار پیشرفت زنده است و دکمه‌ی «لغو» فقط بین چانک‌ها متوقف می‌کند.</li>
+</ol>
+<p>☑ گزینه‌ی «حذف زیرنویس‌های قبلی (S2G)» فقط کلیپ‌هایی را حذف می‌کند که خودِ همین پنل ساخته (نامشان با <code dir="ltr">S2G|</code> شروع می‌شود) — بقیه‌ی ترک دست‌نخورده می‌ماند.</p>
+</div>
+
+<h2>۳) نکات ضدکرش</h2>
+<ul>
+  <li>پارسر SRT داخل خود پنل اجرا می‌شود و هیچ فشاری به پریمیر نمی‌دهد؛ درج‌ها به‌صورت چانک‌های ۱۵تایی با نفس‌کشیدن بین چانک‌ها انجام می‌شود.</li>
+  <li>اگر روی یک زیرنویس مشکلی پیش آمد، فقط همان یکی «مشکل‌دار» می‌شود و بقیه ادامه پیدا می‌کند؛ ساختار قالب هم در اولین شکست، خودکار در جعبه‌ی DUMP نمایش داده می‌شود.</li>
+  <li>دقت زمان‌بندی تا مرز فریم است (رفتار خود پریمیر)؛ زیرنویس‌های هم‌پوشان به‌صورت ایم بریده می‌شوند.</li>
+  <li>اگر پریمیر وسط کار بسته شد: پروژه را باز کنید، گزینه‌ی «حذف زیرنویس‌های قبلی (S2G)» را روشن بگذارید و دوباره «ساخت لایه‌ها» را بزنید — لایه‌های ناقص قبلی پاک و از نو تمیز ساخته می‌شوند.</li>
+</ul>
+
+<h2>فایل‌ها</h2>
+<pre>com.srt2graphics.panel/
+├─ CSXS/manifest.xml    مانیفست CEP (v1.0.0)
+├─ index.html           UI فارسی سبک
+├─ css/style.css
+├─ js/CSInterface.js    پل CEP
+├─ js/srt.js            پارسر SRT (سمت پنل)
+├─ js/core.js           صف evalScript + انکودینگ امن + ترجمه‌ی خطاها
+├─ js/main.js           چرخه‌ی تبدیل + UI
+├─ jsx/hostscript.jsx   موتور درج (ASCII-only ES3)
+└─ fonts/               فونت وزیرمتن</pre>
+</body>
+</html>

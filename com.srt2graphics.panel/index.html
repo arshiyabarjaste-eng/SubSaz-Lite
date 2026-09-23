@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>ساب‌ساز لایت</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>ساب‌ساز لایت</h1>
+    <span id="chipVer" class="chip">v1.0.0</span>
+  </header>
+  <p class="hint">فقط سه انتخاب + یک دکمه. استایل از قالب MOGRT شما گرفته می‌شود.</p>
+
+  <section class="card">
+    <label class="lbl">۱. فایل زیرنویس (SRT)</label>
+    <div class="pickrow">
+      <button id="btnPickSrt" type="button">انتخاب SRT</button>
+      <span id="lblSrt" class="fname">انتخاب نشده</span>
+      <span id="lblSrtCount" class="fcount"></span>
+    </div>
+    <input type="file" id="fileSrt" accept=".srt,.vtt,.txt" class="hidefile">
+  </section>
+
+  <section class="card">
+    <label class="lbl">۲. قالب گرافیکی (MOGRT)</label>
+    <div class="pickrow">
+      <button id="btnPickMogrt" type="button">انتخاب MOGRT</button>
+      <span id="lblMogrt" class="fname">انتخاب نشده</span>
+    </div>
+    <input type="file" id="fileMogrt" accept=".mogrt" class="hidefile">
+  </section>
+
+  <section class="card">
+    <label class="lbl" for="selTrack">۳. ترک مقصد</label>
+    <select id="selTrack">
+      <option value="-1">— انتخاب ترک —</option>
+    </select>
+    <label class="chk">
+      <input type="checkbox" id="chkClear" checked>
+      حذف زیرنویس‌های قبلی همین پلاگین (S2G) از این ترک
+    </label>
+  </section>
+
+  <button id="btnRun" class="primary" type="button">ساخت لایه‌ها</button>
+  <button id="btnCancel" class="ghost" type="button" hidden>لغو</button>
+
+  <div id="barWrap"><div id="barFill"></div></div>
+  <div id="lblProgress">آماده</div>
+  <div id="lblStatus" class="status">در حال اتصال به پریمیر…</div>
+
+  <div id="boxErrors" hidden>
+    <div class="boxtitle">جزئیات خطاها</div>
+    <ul id="listErrors"></ul>
+  </div>
+  <div id="boxDump" hidden>
+    <div class="boxtitle">ساختار MOGRT (DUMP خودکار — یک‌بار در اولین شکست)</div>
+    <pre id="preDump"></pre>
+  </div>
+
+  <script src="js/CSInterface.js"></script>
+  <script src="js/srt.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
