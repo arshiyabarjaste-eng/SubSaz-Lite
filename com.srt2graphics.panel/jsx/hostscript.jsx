@@ -1,5 +1,5 @@
 /* eslint-disable */
-// SubSaz Lite v1.1.1 - hostscript.jsx  (com.srt2graphics.panel, ScriptPath)
+// SubSaz Lite v1.2.0 - hostscript.jsx  (com.srt2graphics.panel, ScriptPath)
 // ExtendScript ES3 inside Premiere Pro. THIS FILE IS ASCII-ONLY:
 // Persian UI strings live in main.js on the CEP side; Persian/Arabic chars
 // inside a BOM-less .jsx are read via the system codepage and break parsing
@@ -34,6 +34,19 @@
 //     payload.baked === true  ->  each cue = { i, start, end, path, text }
 //     importMGT(cue.path, ...) + 3-layer end + clip.name; NO setValue at all.
 //   Engine A (setValue passes 0..5 below) stays intact as the fallback.
+//
+// v1.2.0 FIELD POST-MORTEM (host crash with the baked engine):
+//   The panel paced the baked engine with the CHUNK=15 loop, so this host
+//   executed 15 back-to-back importMGT calls of 15 DISTINCT baked files in
+//   ONE synchronous run - Premiere's graphics engine never got to breathe
+//   and the host crashed. The panel now runs the baked engine through the
+//   proven full-panel cadence: ONE cue per call, panel-side pauses, deep
+//   breath every 10 layers, and the three stability ops below (ported from
+//   the full SubSaz panel v2.2/v2.3):
+//     s2gAutoSavePark/Restore - auto-save firing in the middle of heavy
+//       importMGT churn is a classic crash trigger; park it for the batch.
+//     s2gSaveProject          - guarded protective save (NEVER on an
+//       untitled project: save() would pop a modal and block the bridge).
 
 $.global.s2gState = {
   runId: "",
@@ -41,7 +54,9 @@ $.global.s2gState = {
   textPropKind: "",
   compPair: null,   // {c, p} = clip.components path cache (v1.0.1)
   diagDumped: false,
-  lastAppliedText: ""
+  lastAppliedText: "",
+  asPrev: true,     // v1.2.0: auto-save state parked by s2gAutoSavePark
+  asParked: false   // v1.2.0: true while a baked batch is in flight
 };
 
 var S2G_TICKS_PER_SEC = 254016000000; // 254016 * 10^6
@@ -306,7 +321,47 @@ function s2gEqText(a, b) {
 
 // ------------------------------------------------------------------- public
 function s2gPing() {
-  return s2gToJSON({ ok: true, ver: "1.1.1", name: "srt2graphics" });
+  return s2gToJSON({ ok: true, ver: "1.2.0", name: "srt2graphics" });
+}
+
+// ------------------------------------------------------------ v1.2.0 ops
+// Ported verbatim (renamed) from the full SubSaz panel, where this exact
+// trio has kept month-long batch runs crash-free. All guarded: some hosts
+// lack these undocumented methods, and every failure is non-fatal.
+function s2gAutoSavePark() {
+  try {
+    if (typeof app === "undefined" || !app || !app.setEnableAutoSave) {
+      return s2gToJSON({ ok: true, parked: false });
+    }
+    var prev = true;
+    try { if (app.getEnableAutoSave) { prev = !!app.getEnableAutoSave(); } } catch (eR) { prev = true; }
+    try { app.setEnableAutoSave(false); } catch (eS) { return s2gToJSON({ ok: true, parked: false }); }
+    s2gState.asPrev = prev;
+    s2gState.asParked = true;
+    return s2gToJSON({ ok: true, parked: true });
+  } catch (eO) { return s2gToJSON({ ok: true, parked: false }); }
+}
+
+function s2gAutoSaveRestore() {
+  var restored = false;
+  if (s2gState.asParked) {
+    s2gState.asParked = false;
+    try { app.setEnableAutoSave(!!s2gState.asPrev); restored = true; } catch (eS) { restored = false; }
+  }
+  return s2gToJSON({ ok: true, restored: restored });
+}
+
+// ONE protective save, guarded. NEVER on an untitled project: save() would
+// pop a modal dialog and block the bridge. The panel calls this every 10
+// layers as a mid-run recovery point (crash -> reopen -> saved state).
+function s2gSaveProject() {
+  try {
+    var ppath = "";
+    try { ppath = String(app.project.path || ""); } catch (eP) { ppath = ""; }
+    if (!ppath) { return s2gToJSON({ ok: true, saved: false, why: "untitled" }); }
+    app.project.save();
+    return s2gToJSON({ ok: true, saved: true });
+  } catch (eS) { return s2gToJSON({ ok: true, saved: false, why: "error" }); }
 }
 
 function s2gResetState() {

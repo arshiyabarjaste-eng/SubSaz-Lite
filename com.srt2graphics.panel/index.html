@@ -8,7 +8,7 @@
 <body>
   <header>
     <h1>ساب‌ساز لایت</h1>
-    <span id="chipVer" class="chip">v1.1.1</span>
+    <span id="chipVer" class="chip">v1.2.0</span>
   </header>
   <p class="hint">فقط سه انتخاب + یک دکمه. استایل از قالب MOGRT شما گرفته می‌شود.</p>
 
@@ -42,6 +42,17 @@
       <option value="direct">مستقیم — نوشتن داخل پریمیر (روش قدیمی)</option>
       <option value="auto">هوشمند — اول بیکری، اگر نشد مستقیم</option>
     </select>
+    <label class="lbl" for="selPace">مکث بین لایه‌ها (ضدکرش — موتور بیکری)</label>
+    <select id="selPace">
+      <option value="1000">۱ ثانیه — سریع‌تر</option>
+      <option value="2000">۲ ثانیه</option>
+      <option value="3000" selected>۳ ثانیه — پیشنهادی</option>
+      <option value="5000">۵ ثانیه — ایمن‌ترین</option>
+    </select>
+    <label class="chk">
+      <input type="checkbox" id="chkMidSave" checked>
+      ذخیره‌ی میانی پروژه هر ۱۰ لایه (نقطه‌ی بازیابی در صورت کرش)
+    </label>
     <label class="chk">
       <input type="checkbox" id="chkClear" checked>
       حذف زیرنویس‌های قبلی همین پلاگین (S2G) از این ترک

@@ -1,4 +1,4 @@
-/* SubSaz Lite v1.1.1 — main.js
+/* SubSaz Lite v1.2.0 — main.js
  * UI + run loop (CEP side). Heavy work (import + set time + set text) happens
  * inside ExtendScript in chunks; this file only queues, encodes, and paints.
  *
@@ -19,12 +19,28 @@
  * silently; the final status names the engine that actually ran; auto/direct
  * remain as explicit opt-ins for other hosts.
  *
+ * v1.2.0 — FIELD POST-MORTEM: THE BAKED ENGINE CRASHED THE HOST. The v1.1.x
+ * build paced baked inserts with the CHUNK=15 loop, so Premiere had to
+ * execute 15 back-to-back importMGT calls of 15 DISTINCT baked files inside
+ * ONE synchronous ExtendScript run — its graphics engine never got to
+ * breathe, and with auto-save able to fire mid-churn the host went down
+ * (user report). The full SubSaz panel runs the SAME bake engine crash-free
+ * with the proven v2.1..v2.4 cadence, which this build now ports verbatim:
+ *   - ONE cue per evalScript call (Core.createStepLoop)
+ *   - a 3s pause between layers (selectable 1/2/3/5s), doubled after a
+ *     failed layer (max 10s), back to base once inserts run smoothly again
+ *   - a deep breath (+2s) every 10 layers
+ *   - Premiere auto-save PARKED during the batch, restored at the end
+ *   - a guarded mid-run project save every 10 layers (recovery points)
+ *   - ONE retry of a failed first insert after 3s (layer-zero window)
+ *   - cancel honored within 500ms during pauses
+ * The direct engine keeps the CHUNK=15 loop (legacy fallback, not default).
+ *
  * Crash-safety recap (mirror of the architecture):
  *   - single-flight queue (core.createBridge) — never 2 evalScript at once
- *   - CHUNK_SIZE = 15 cues per call + setTimeout(next, 0) between chunks so
- *     CEF repaints and the Cancel button stays alive
- *   - cancel is honored BETWEEN chunks only (the host cannot be interrupted
- *     mid-import anyway)
+ *   - baked engine: 1 cue per call + pacing; direct engine: CHUNK_SIZE = 15
+ *     cues per call + setTimeout(next, 0) between chunks
+ *   - cancel is honored between layers (baked) / chunks (direct)
  *   - setBusy locks every control -> a double-click can never start 2 runs
  *   - fatal codes stop the run; per-cue problems are logged and the run lives
  *   - DUMP rows are routed to the debug box, everything else to Persian logs
@@ -47,6 +63,11 @@
     bake: null,       // v1.1.0: { items, cueMap, dir } after a successful bake
     engineUsed: "",   // v1.1.1: which engine actually produced the layers ("bake"|"direct")
     usedFallback: false, // v1.1.1: auto mode degraded to direct (must warn loudly)
+    paceMs: 3000,     // v1.2.0: base pause between baked inserts (crash prevention)
+    midSave: true,    // v1.2.0: protective project save every 10 layers
+    savedN: 0,        // v1.2.0: how many mid-run saves actually happened
+    asParked: false,  // v1.2.0: Premiere auto-save parked during the batch
+    stepLoop: null,   // v1.2.0: Core.createStepLoop handle (baked engine)
     running: false,
     cancel: false,
     runId: "",
@@ -82,6 +103,8 @@
     $("selTrack").disabled = b;
     $("selEngine").disabled = b;
     $("chkClear").disabled = b;
+    if ($("selPace")) { $("selPace").disabled = b; }
+    if ($("chkMidSave")) { $("chkMidSave").disabled = b; }
   }
 
   function clearErrors() {
@@ -246,12 +269,23 @@
       state.engine = this.value;
     });
 
+    if ($("selPace")) {
+      $("selPace").addEventListener("change", function () {
+        state.paceMs = parseInt(this.value, 10) || 3000;
+      });
+    }
+    if ($("chkMidSave")) {
+      $("chkMidSave").addEventListener("change", function () {
+        state.midSave = this.checked;
+      });
+    }
+
     $("btnRun").addEventListener("click", run);
     $("btnCancel").addEventListener("click", function () {
       if (!state.running) return;
       state.cancel = true;
       this.disabled = true;
-      setStatus("در حال لغو… پس از پایان چانک فعلی متوقف می‌شود.", "warn");
+      setStatus("در حال لغو… در اولین فرصت (حداکثر نیم ثانیه) متوقف می‌شود.", "warn");
     });
   }
 
@@ -280,6 +314,9 @@
     state.bake = null;
     state.engineUsed = "";
     state.usedFallback = false;
+    state.savedN = 0;       // v1.2.0
+    state.asParked = false; // v1.2.0
+    state.stepLoop = null;  // v1.2.0
     clearErrors();
     hideDump();
     setBusy(true);
@@ -372,7 +409,7 @@
         info.hidden = false;
         setStatus("بیکری آماده شد — " + res.items.length + " قالب اختصاصی برای " + state.total + " لایه (متن‌های تکراری مشترک).", "ok");
         progress(0, state.total);
-        startChunks(true);
+        parkAndStartBaked(); // v1.2.0: proven anti-crash cadence (1 cue/call + pauses)
       } else {
         var err = Core.trBakeErr((res && res.error) ? res.error : "نامشخص");
         if (eng === "bake") {
@@ -392,6 +429,90 @@
     } else {
       setTimeout(function () { done(Baker.bakeCueList(state.mogrtPath, list)); }, 0);
     }
+  }
+
+  // ---------- v1.2.0: baked engine on the proven anti-crash cadence ----------
+  // FIELD POST-MORTEM: v1.1.x ran the baked engine through startChunks(), so
+  // the host executed 15 back-to-back importMGT calls of 15 DISTINCT baked
+  // files inside ONE synchronous ExtendScript run and Premiere CRASHED. The
+  // full SubSaz panel runs the exact same bake engine crash-free with:
+  // ONE layer per call, a 3s pause between layers, pause doubled after a
+  // failure (max 10s), a deep breath every 10 layers, Premiere auto-save
+  // parked during the batch, and a mid-run save every 10 layers. That
+  // cadence is ported here verbatim via Core.createStepLoop.
+  function parkAndStartBaked() {
+    callHost("s2gAutoSavePark", "", function (rp) {
+      state.asParked = !!(rp && rp.ok && rp.parked);
+      startBakedSteps();
+    });
+  }
+
+  function startBakedSteps() {
+    state.engineUsed = "bake";
+    var loop = Core.createStepLoop({
+      total: state.total,
+      settleMs: 1200, // v3.4.2 lesson: let the clear wave settle before import #1
+      pauseMs: function () { return state.paceMs; },
+      isCanceled: function () { return state.cancel; },
+      step: function (idx, cb) {
+        var c = state.cues[idx];
+        var it = state.bake.items[state.bake.cueMap[c.i - 1]]; // cue.i is 1-based
+        var payload = {
+          runId: state.runId,
+          baked: true,
+          mogrtPath: state.mogrtPath,
+          trackIndex: state.trackIndex,
+          cues: [{ i: c.i, start: c.start, end: c.end, path: it ? it.path : "", text: c.text }]
+        };
+        callHost("s2gInsertChunk", Core.evalArg(payload), function (r) {
+          var okStep = false;
+          if (r && r.ok) {
+            var errs = r.errors || [];
+            for (var k = 0; k < errs.length; k++) {
+              var line = String(errs[k]);
+              if (line.indexOf("DUMP ") === 0) {
+                tryShowDump(line.slice(5));
+              } else {
+                recordError(Core.trHostMsg(line) || line);
+              }
+            }
+            markCueProblems(errs);
+            okStep = r.inserted > 0;
+            if (!okStep) { state.problemSet[c.i] = true; }
+          } else {
+            var code = (r && r.code) ? r.code : "UNKNOWN";
+            if (Core.isFatalCode(code)) {
+              fail(Core.trError(code));
+              return;
+            }
+            recordError("لایه " + c.i + ": " + (Core.trError(code) || code));
+            state.problemSet[c.i] = true;
+          }
+          cb(okStep);
+        });
+      },
+      onSave: function (i, sCb) {
+        callHost("s2gSaveProject", "", function (rs) {
+          if (rs && rs.ok && rs.saved) { state.savedN++; }
+          sCb();
+        });
+      },
+      onRetryFirst: function () {
+        recordError("اولین درج ناموفق بود — پس از ۳ ثانیه یک بار دیگر تلاش می‌شود…");
+      },
+      onPaceUp: function (ms) {
+        recordError("یک لایه ناموفق شد — مکث احتیاطی به " + Math.round(ms / 1000) + " ثانیه افزایش یافت.");
+      },
+      onProgress: function (done) {
+        state.processed = done;
+        progress(done, state.total);
+      },
+      onDone: function (canceled) {
+        finish(canceled);
+      }
+    });
+    state.stepLoop = loop;
+    loop.start();
   }
 
   function startChunks(baked) {
@@ -477,7 +598,20 @@
   function finish(canceled) {
     state.running = false;
     setBusy(false);
-    loadTracks(); // clip counts changed
+    restoreAutosave(function () {
+      loadTracks(); // clip counts changed
+      paintFinish(canceled);
+    });
+  }
+
+  // v1.2.0: always give Premiere its auto-save back, then paint the result.
+  function restoreAutosave(after) {
+    if (!state.asParked) { after(); return; }
+    state.asParked = false;
+    callHost("s2gAutoSaveRestore", "", function () { after(); });
+  }
+
+  function paintFinish(canceled) {
     var done = canceled ? state.processed : state.total;
     var prob = problemCount();
     var good = Math.max(0, done - prob);
@@ -493,6 +627,7 @@
     } else {
       stamp = "";
     }
+    if (state.savedN > 0) { stamp += " — ذخیره‌ی میانی: " + state.savedN + " بار"; }
     if (canceled) {
       setStatus("لغو شد — " + good + " موفق، " + prob + " مشکل‌دار." + stamp, "warn");
     } else if (prob > 0) {
@@ -506,9 +641,11 @@
   function fail(msg) {
     state.running = false;
     setBusy(false);
-    loadTracks();
-    setStatus("خطا: " + msg, "err");
-    showErrors();
+    restoreAutosave(function () {
+      loadTracks();
+      setStatus("خطا: " + msg, "err");
+      showErrors();
+    });
   }
 
   // ---------- boot (lifecycle from the architecture doc) ----------

@@ -1,4 +1,4 @@
-/* SubSaz Lite v1.1.1 — core.js
+/* SubSaz Lite v1.2.0 — core.js
  * The evalScript bridge + safe encoding + Persian error translation.
  * Runs in CEF (this file never touches Premiere APIs directly).
  *
@@ -185,6 +185,117 @@
     return s;
   }
 
+  // ---------- v1.2.0: anti-crash step loop (baked engine) ----------
+  // FIELD POST-MORTEM: v1.1.x paced the baked engine with the CHUNK=15 loop,
+  // so the host executed 15 back-to-back importMGT calls of 15 DISTINCT baked
+  // files inside ONE synchronous ExtendScript run - Premiere's graphics
+  // engine never got to breathe and the host CRASHED (user report, v1.1.1).
+  // The full SubSaz panel has run crash-free for months with the proven
+  // cadence (v2.1..v2.4): ONE layer per call, a 3s pause between layers,
+  // pause DOUBLED after a failure (max 10s), a deep breath every 10 layers,
+  // Premiere auto-save PARKED during the batch, and a mid-run save every
+  // 10 layers. This loop is that cadence, extracted so it can be tested
+  // without a DOM or a host.
+  //
+  // hooks = {
+  //   total:       number of steps
+  //   settleMs:    wait before the FIRST step (let the clear wave settle)
+  //   pauseMs():   base pause between steps (ms)
+  //   tickMs:      cancel-poll granularity (default 500ms; tests use 10)
+  //   isCanceled():bool
+  //   step(i, cb): do exactly ONE unit of work; cb(ok)
+  //   onSave(i, cb): mid-run save hook, called every 10 steps (optional)
+  //   onRetryFirst(): logged when the failed FIRST step gets its one retry
+  //   onPaceUp(ms):  logged when the pause doubles
+  //   onProgress(done): 1..total after every step (failures count as done)
+  //   onDone(canceled)
+  // }
+  function createStepLoop(h) {
+    var i = 0;
+    var cur = 0;
+    var firstRetried = false;
+    var finished = false;
+    var timer = null;
+
+    function basePause() {
+      var p = h.pauseMs ? h.pauseMs() : 0;
+      return (p && p > 0) ? p : 0;
+    }
+    function tick() {
+      var t = (h.tickMs && h.tickMs > 0) ? h.tickMs : 500;
+      return t;
+    }
+    function stop(canceled) {
+      if (finished) return;
+      finished = true;
+      if (timer) { clearInterval(timer); timer = null; }
+      if (h.onDone) h.onDone(canceled);
+    }
+    function checkCancel() {
+      return !finished && h.isCanceled && h.isCanceled();
+    }
+    function runStep() {
+      if (finished) return;
+      if (checkCancel()) { stop(true); return; }
+      if (i >= h.total) { stop(false); return; }
+      var idx = i;
+      h.step(idx, function (ok) {
+        if (finished) return;               // stopNow() during a step
+        if (checkCancel()) { stop(true); return; }
+        if (!ok) {
+          if (idx === 0 && !firstRetried) {
+            // v3.4.2 lesson: layer-zero window -> ONE retry after 3s
+            firstRetried = true;
+            if (h.onRetryFirst) h.onRetryFirst();
+            timer = setTimeout(runStep, 3000);
+            return;
+          }
+          if (cur < 10000) {
+            var b = basePause();
+            var next = Math.min((cur || b) * 2, 10000);
+            if (!(next > 0)) { next = 10000; }
+            cur = next;
+            if (h.onPaceUp) h.onPaceUp(cur);
+          }
+        } else {
+          if (cur !== basePause() && h.onPaceBack) { h.onPaceBack(); }
+          cur = basePause();
+        }
+        i = idx + 1;                        // failures are marked + skipped
+        if (h.onProgress) h.onProgress(i);
+        afterWait();
+      });
+    }
+    function afterWait() {
+      if (finished) return;
+      if (checkCancel()) { stop(true); return; }
+      if (i >= h.total) { stop(false); return; }
+      var deep = (i % 10 === 0) ? 2000 : 0; // deep breath every 10 layers
+      if (deep > 0 && h.onSave) {
+        h.onSave(i, function () { wait(cur + deep); });
+      } else {
+        wait(cur + deep);
+      }
+    }
+    function wait(ms) {
+      if (finished) return;
+      if (ms <= 0) { timer = setTimeout(runStep, 0); return; }
+      var remain = ms;
+      var t = tick();
+      timer = setInterval(function () {
+        if (finished) { clearInterval(timer); timer = null; return; }
+        if (checkCancel()) { clearInterval(timer); timer = null; stop(true); return; }
+        remain -= t;
+        if (remain <= 0) { clearInterval(timer); timer = null; runStep(); }
+      }, t);
+    }
+    return {
+      start: function () { cur = basePause(); timer = setTimeout(runStep, h.settleMs || 0); },
+      stopNow: function () { stop(true); },
+      currentPause: function () { return cur; }
+    };
+  }
+
   global.S2GCore = {
     CHUNK_SIZE: CHUNK_SIZE,
     GUARD_MS: GUARD_MS,
@@ -192,6 +303,7 @@
     evalArg: evalArg,
     evalLit: evalLit,
     createBridge: createBridge,
+    createStepLoop: createStepLoop,
     isFatalCode: isFatalCode,
     trError: trError,
     trBakeErr: trBakeErr,
