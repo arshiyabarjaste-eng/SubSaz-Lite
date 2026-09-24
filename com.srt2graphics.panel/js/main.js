@@ -1,4 +1,4 @@
-/* SubSaz Lite v1.1.0 — main.js
+/* SubSaz Lite v1.1.1 — main.js
  * UI + run loop (CEP side). Heavy work (import + set time + set text) happens
  * inside ExtendScript in chunks; this file only queues, encodes, and paints.
  *
@@ -9,6 +9,15 @@
  * inside (MogrtBaker.js, Node in CEF) and let the host import those files —
  * the ExtendScript layer then contains NO text handling at all. Engine A
  * (direct setValue, v1.0.x) stays as the selectable fallback.
+ *
+ * v1.1.1 — BAKE IS THE ONLY DEFAULT. Field post-mortem: v1.1.0 shipped with
+ * engine=auto, and every bake failure (Node off after install without a
+ * Premiere restart, template quirk, disk error) SILENTLY degraded into the
+ * direct engine — which reproduces the exact placeholder bug the user keeps
+ * reporting, so the fix looked broken. Now: default = bake-only; a bake
+ * failure FAILS LOUDLY in Persian (with the remedy), never falls back
+ * silently; the final status names the engine that actually ran; auto/direct
+ * remain as explicit opt-ins for other hosts.
  *
  * Crash-safety recap (mirror of the architecture):
  *   - single-flight queue (core.createBridge) — never 2 evalScript at once
@@ -34,8 +43,10 @@
     cues: null,
     mogrtPath: "",
     trackIndex: -1,
-    engine: "auto",   // v1.1.0: "auto" | "bake" | "direct"
+    engine: "bake",   // v1.1.1: bake is THE default — direct never runs unless picked
     bake: null,       // v1.1.0: { items, cueMap, dir } after a successful bake
+    engineUsed: "",   // v1.1.1: which engine actually produced the layers ("bake"|"direct")
+    usedFallback: false, // v1.1.1: auto mode degraded to direct (must warn loudly)
     running: false,
     cancel: false,
     runId: "",
@@ -267,6 +278,8 @@
     state.processed = 0;
     state.problemSet = {};
     state.bake = null;
+    state.engineUsed = "";
+    state.usedFallback = false;
     clearErrors();
     hideDump();
     setBusy(true);
@@ -314,6 +327,9 @@
         fail("موتور بیکری بارگذاری نشده — اسکریپت mogrtbaker.js در پوشه‌ی پنل نیست.");
         return;
       }
+      // auto + baker file missing -> degrade, but SAY SO (v1.1.1: never silent)
+      state.usedFallback = true;
+      recordError("موتور بیکری بارگذاری نشده — با روش مستقیم ادامه می‌دهیم.");
       startChunks(false);
       return;
     }
@@ -322,6 +338,7 @@
         fail("موتور بیکری در دسترس نیست — Node در پنل غیرفعال است (پنل را ببندید و دوباره باز کنید).");
         return;
       }
+      state.usedFallback = true;
       recordError("موتور بیکری در دسترس نیست — با روش مستقیم ادامه می‌دهیم.");
       startChunks(false);
       return;
@@ -357,11 +374,12 @@
         progress(0, state.total);
         startChunks(true);
       } else {
-        var err = (res && res.error) ? res.error : "نامشخص";
+        var err = Core.trBakeErr((res && res.error) ? res.error : "نامشخص");
         if (eng === "bake") {
           fail("بیکری ناموفق بود: " + err);
           return;
         }
+        state.usedFallback = true;
         recordError("بیکری ناموفق بود (" + err + ") — با روش مستقیم ادامه می‌دهیم.");
         startChunks(false);
       }
@@ -377,6 +395,7 @@
   }
 
   function startChunks(baked) {
+    state.engineUsed = baked ? "bake" : "direct"; // v1.1.1: stamp the final status with this
     var i = 0;
     var total = state.total;
 
@@ -462,13 +481,25 @@
     var done = canceled ? state.processed : state.total;
     var prob = problemCount();
     var good = Math.max(0, done - prob);
+    // v1.1.1: the final status ALWAYS names the engine that ran — the user must
+    // never have to guess whether the baked fix was actually in effect.
+    var stamp;
+    if (state.usedFallback) {
+      stamp = " (با موتور مستقیم ساخته شد — اگر متن لایه‌ها اشتباه است، روش «فقط بیکری» را انتخاب کنید)";
+    } else if (state.engineUsed === "bake") {
+      stamp = " (موتور بیکری)";
+    } else if (state.engineUsed === "direct") {
+      stamp = " (موتور مستقیم)";
+    } else {
+      stamp = "";
+    }
     if (canceled) {
-      setStatus("لغو شد — " + good + " موفق، " + prob + " مشکل‌دار.", "warn");
+      setStatus("لغو شد — " + good + " موفق، " + prob + " مشکل‌دار." + stamp, "warn");
     } else if (prob > 0) {
-      setStatus("تمام شد — " + good + " لایه سالم، " + prob + " مشکل‌دار.", "warn");
+      setStatus("تمام شد — " + good + " لایه سالم، " + prob + " مشکل‌دار." + stamp, "warn");
       showErrors();
     } else {
-      setStatus("تمام شد — " + good + " لایه با موفقیت ساخته شد.", "ok");
+      setStatus("تمام شد — " + good + " لایه با موفقیت ساخته شد." + stamp, "ok");
     }
   }
 

@@ -1,5 +1,5 @@
 /* eslint-disable */
-// SubSaz Lite v1.1.0 - hostscript.jsx  (com.srt2graphics.panel, ScriptPath)
+// SubSaz Lite v1.1.1 - hostscript.jsx  (com.srt2graphics.panel, ScriptPath)
 // ExtendScript ES3 inside Premiere Pro. THIS FILE IS ASCII-ONLY:
 // Persian UI strings live in main.js on the CEP side; Persian/Arabic chars
 // inside a BOM-less .jsx are read via the system codepage and break parsing
@@ -306,7 +306,7 @@ function s2gEqText(a, b) {
 
 // ------------------------------------------------------------------- public
 function s2gPing() {
-  return s2gToJSON({ ok: true, ver: "1.1.0", name: "srt2graphics" });
+  return s2gToJSON({ ok: true, ver: "1.1.1", name: "srt2graphics" });
 }
 
 function s2gResetState() {

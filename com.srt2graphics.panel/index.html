@@ -8,7 +8,7 @@
 <body>
   <header>
     <h1>ساب‌ساز لایت</h1>
-    <span id="chipVer" class="chip">v1.1.0</span>
+    <span id="chipVer" class="chip">v1.1.1</span>
   </header>
   <p class="hint">فقط سه انتخاب + یک دکمه. استایل از قالب MOGRT شما گرفته می‌شود.</p>
 
@@ -38,9 +38,9 @@
     </select>
     <label class="lbl" for="selEngine">روش نوشتن متن</label>
     <select id="selEngine">
-      <option value="auto" selected>هوشمند — بیکری (پیشنهادی)، وگرنه مستقیم</option>
-      <option value="bake">فقط بیکری — مطمئن‌ترین (متن داخل فایل قالب)</option>
+      <option value="bake" selected>فقط بیکری — مطمئن‌ترین (متن داخل فایل قالب پخته می‌شود)</option>
       <option value="direct">مستقیم — نوشتن داخل پریمیر (روش قدیمی)</option>
+      <option value="auto">هوشمند — اول بیکری، اگر نشد مستقیم</option>
     </select>
     <label class="chk">
       <input type="checkbox" id="chkClear" checked>

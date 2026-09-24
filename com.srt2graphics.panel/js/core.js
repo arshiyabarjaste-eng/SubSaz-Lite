@@ -1,4 +1,4 @@
-/* SubSaz Lite v1.1.0 — core.js
+/* SubSaz Lite v1.1.1 — core.js
  * The evalScript bridge + safe encoding + Persian error translation.
  * Runs in CEF (this file never touches Premiere APIs directly).
  *
@@ -164,6 +164,27 @@
     return "کیو " + n + ": " + rest;
   }
 
+  // v1.1.1 — translate MogrtBaker failure codes into Persian WITH the remedy.
+  // Field lesson: a raw code like "E_NONODE" tells the user nothing; the same
+  // failure silently degraded into the broken direct engine and the user saw
+  // the placeholder bug AGAIN. Every bake failure must name the next action.
+  function trBakeErr(err) {
+    var s = String(err || "");
+    if (s.indexOf("E_NONODE") === 0) return "Node در پنل غیرفعال است — پریمیر را کامل ببندید و دوباره باز کنید (بعد از نصب/به‌روزرسانی پنل حتماً لازم است).";
+    if (s.indexOf("E_TPLREAD") === 0) return "فایل قالب خوانده نشد — فایل MOGRT را دوباره انتخاب کنید (یا جایش را عوض نکنید تا پایان کار).";
+    if (s.indexOf("E_EMPTYOLDTEXT") === 0) return "متن نمونه‌ی داخل قالب خالی است — در پریمیر داخل قالب یک متن نمونه بنویسید و دوباره به‌عنوان MOGRT اکسپورت کنید.";
+    if (s.indexOf("E_NOTEXTCTL") === 0) return "این قالب فیلد متن قابل‌تشخیص ندارد — داخل قالب یک لایه‌ی متن با متن نمونه بگذارید و دوباره اکسپورت کنید.";
+    if (s.indexOf("E_NODEF") === 0 || s.indexOf("E_DEFJSON") === 0) return "ساختار definition.json این قالب خوانده نشد — قالب باید از پنل گرافیک اساسی پریمیر اکسپورت شده باشد (نه از افترافکت).";
+    if (s.indexOf("E_NOPRGRAPHIC") === 0 || s.indexOf("E_PRGRAPHIC") === 0) return "داده‌ی گرافیکی قالب (project.prgraphic) پیدا نشد — قالب باید از پریمیر اکسپورت شده باشد.";
+    if (s.indexOf("E_XMLPATCH") === 0) return "متنِ سند گرافیکی قالب با متن نمونه‌ی پنل گرافیک یکی نیست — در پریمیر متن داخل قالب را ویرایش کنید و دوباره اکسپورت کنید.";
+    if (s.indexOf("E_VERIFY") === 0) return "بازبینی فایل بیکری ناموفق بود — یک بار دیگر تلاش کنید؛ اگر تکرار شد، قالب را دوباره اکسپورت کنید.";
+    if (s.indexOf("E_WRITE") === 0) return "نوشتن فایل بیکری روی دیسک ناموفق بود — فضای دیسک و دسترسی پوشه‌ی Documents را بررسی کنید.";
+    if (s.indexOf("E_TMPDIR") === 0) return "ساخت پوشه‌ی بیکری ناموفق بود — دسترسی پوشه‌ی Documents را بررسی کنید.";
+    if (s.indexOf("E_ZIPREAD") === 0) return "فایل قالب به‌عنوان ZIP باز نشد — فایل احتمالاً خراب است؛ دوباره از پریمیر اکسپورتش کنید.";
+    if (s.indexOf("E_TPLBUF") === 0 || s.indexOf("E_EMPTYTEXT") === 0) return "ورودی بیکری نامعتبر بود — یک بار دیگر تلاش کنید.";
+    return s;
+  }
+
   global.S2GCore = {
     CHUNK_SIZE: CHUNK_SIZE,
     GUARD_MS: GUARD_MS,
@@ -173,6 +194,7 @@
     createBridge: createBridge,
     isFatalCode: isFatalCode,
     trError: trError,
+    trBakeErr: trBakeErr,
     trHostMsg: trHostMsg,
     trReason: trReason
   };
